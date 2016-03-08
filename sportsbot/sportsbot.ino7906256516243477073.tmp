@@ -1,0 +1,213 @@
+#include <SportsLib.h>
+
+/********** OUTPUT PINS****************/
+#define LEFT_MOTOR_D_PIN    3 // must be these for PWM to work
+#define LEFT_MOTOR_E_PIN    4
+#define RIGHT_MOTOR_D_PIN   5
+#define RIGHT_MOTOR_E_PIN   6
+
+/*********** INPUT PINS ****************/
+#define LEFT_LINE_SENSOR_PIN      3
+#define MIDDLE_LINE_SENSOR_PIN    2
+#define RIGHT_LINE_SENSOR_PIN     0
+#define FAR_LEFT_LINE_SENSOR_PIN  1
+
+#define PHOTOTRANSISTOR_PIN 2 // must be pin 2 for interrupt to work
+
+/*********** SENSOR THRESHOLDS **********/
+// max is 500mv, which  is .1 * 1023 = 102. half should be a good trigger, so .5 * 100 = 50
+#define LINE_SENSOR_TRIGGER_LEVEL 50
+
+/********** SPORTS BOT *****************/
+#define STAGE_LOCATE        0
+
+#define STATE_LOCATING_CW       0
+#define STATE_APPROACHING_LINES 1
+#define STATE_DEBUG             2
+#define STATE_FOLLOW_VERTICAL   3
+#define STATE_CROSSING_VERTICAL_LINE  4
+#define STATE_WAITING_TO_BEGIN  5
+#define STATE_FOLLOWING_RIGHT   6
+#define STATE_FOLLOWING_LEFT    7
+#define STATE_TURNING_ON_VERTICAL_LINE 8
+int stage;
+int state;
+
+
+bool serial_flag = true;
+
+/********** SUB SYSTEMS ****************/
+SportsMotor leftMotor(LEFT_MOTOR_D_PIN, LEFT_MOTOR_E_PIN);
+SportsMotor rightMotor(RIGHT_MOTOR_D_PIN, RIGHT_MOTOR_E_PIN);
+
+SportsLineSensor leftSensor(LEFT_LINE_SENSOR_PIN, LINE_SENSOR_TRIGGER_LEVEL);
+SportsLineSensor rightSensor(RIGHT_LINE_SENSOR_PIN, LINE_SENSOR_TRIGGER_LEVEL);
+SportsLineSensor middleSensor(MIDDLE_LINE_SENSOR_PIN, LINE_SENSOR_TRIGGER_LEVEL);
+SportsLineSensor farLeftSensor(FAR_LEFT_LINE_SENSOR_PIN, LINE_SENSOR_TRIGGER_LEVEL);
+
+SportsPhototransistor photoT(PHOTOTRANSISTOR_PIN);
+
+void setup() {
+
+  if (serial_flag) {
+    Serial.begin(9600);
+  }
+
+  //init components
+  leftMotor.initialize();
+  rightMotor.initialize();
+
+  leftMotor.setEnabled(true);
+  rightMotor.setEnabled(true);
+
+  photoT.initialize();
+
+  /********* START LOCATING ************/
+  stage = STAGE_LOCATE;
+  state = STATE_WAITING_TO_BEGIN;
+
+}
+
+void loop() {
+  if (serial_flag) {
+    if (TestForKey()) RespToKey();
+  }
+
+  if (stage == STAGE_LOCATE)
+    locateStageLoop();
+
+}
+
+/************** LOOP FUNCTIONS ****************/
+/* void locateStageLoop()
+   loop function for bot while in locate stage.
+   performs different actions based on which state the bot is in
+*/
+void locateStageLoop() {
+  if (state == STATE_WAITING_TO_BEGIN) {
+    //do nothing
+  }
+  if (state == STATE_LOCATING_CW) {
+    if (photoT.isTriggered()) {
+      //stop
+      leftMotor.setDirectionAndSpeed(SportsMotor::FORWARD, 0);
+      rightMotor.setDirectionAndSpeed(SportsMotor::FORWARD, 0);
+      //if (serial_flag) Serial.println("FOUND BEACON");
+    }
+  }
+  else if (state == STATE_APPROACHING_LINES) {
+    if (leftSensor.isTriggered()) {
+      //hit vertical line
+      state = STATE_CROSSING_VERTICAL_LINE;
+      if (serial_flag) Serial.println("left sensor triggered, state = crossing vertical line");
+    }
+    if (rightSensor.isTriggered()) {
+      //hit horizontal
+
+      //if (serial_flag) //Serial.println("right sensor triggered");
+    }
+  }
+  else if (state == STATE_CROSSING_VERTICAL_LINE) {
+    if (rightSensor.isTriggered()) {
+      if (serial_flag) Serial.println("right sensor triggered, stopping");
+
+      //state = STATE_FOLLOWING_RIGHT;
+      leftMotor.setDirectionAndSpeed(SportsMotor::FORWARD, 0 * SportsMotor::SPEED_MAX);
+      rightMotor.setDirectionAndSpeed(SportsMotor::BACKWARD, 0 * SportsMotor::SPEED_MAX);
+      delay(500);
+      
+      leftMotor.setDirectionAndSpeed(SportsMotor::FORWARD, .3 * SportsMotor::SPEED_MAX);
+      rightMotor.setDirectionAndSpeed(SportsMotor::BACKWARD, .4* SportsMotor::SPEED_MAX);
+      delay(400);
+
+      leftMotor.setDirectionAndSpeed(SportsMotor::FORWARD, .4 * SportsMotor::SPEED_MAX);
+      rightMotor.setDirectionAndSpeed(SportsMotor::FORWARD, .4* SportsMotor::SPEED_MAX);
+    }
+    if (farLeftSensor.isTriggered() && middleSensor.isTriggered()) {
+      leftMotor.setDirectionAndSpeed(SportsMotor::FORWARD, 0);
+      rightMotor.setDirectionAndSpeed(SportsMotor::FORWARD, 0);
+      Serial.println("QUADFECTA");
+      state = STATE_DEBUG;
+    }
+  }
+  else if (state == STATE_TURNING_ON_VERTICAL_LINE) {
+    if (rightSensor.isTriggered()) {
+      
+    }
+  }
+
+  else if (state == STATE_DEBUG) {
+    //Serial.println("State = debug");
+    if (leftSensor.isTriggered()) {
+      Serial.println("LEFT SENSOR TRIGGERED");
+    }
+    if (rightSensor.isTriggered()) {
+      Serial.println("RIGHT SENSOR TRIGGERED");
+    }
+    if (middleSensor.isTriggered()) {
+      Serial.println("MIDDLE SENSOR TRIGGERED");
+    }
+    if (farLeftSensor.isTriggered()) {
+      Serial.println("FAR LEFT SENSOR TRIGGERED");
+    }
+  }
+}
+
+/********* SERIAL ***********/
+/*
+    Type the character and enter
+   Space = STOP
+   G = Max Forward
+   B = Max Backward
+   ] = Spin clockwise
+   [ = spin counter clockwise
+*/
+unsigned char TestForKey(void) {
+  unsigned char KeyEventOccurred;
+  KeyEventOccurred = Serial.available();
+  return KeyEventOccurred;
+}
+
+void RespToKey() {
+  unsigned char theKey;
+  theKey = Serial.read();
+
+  Serial.write(theKey);
+  Serial.print(", ASCII=");
+  Serial.println(theKey, HEX);
+  //state = STATE_DEBUG;
+  switch (theKey) {
+    case ' ':
+      rightMotor.setDirectionAndSpeed(SportsMotor::FORWARD, 0);
+      leftMotor.setDirectionAndSpeed(SportsMotor::FORWARD, 0);
+      rightMotor.setEnabled(false);
+      leftMotor.setEnabled(false);
+      break;
+    case 'g':
+      leftMotor.setDirectionAndSpeed(SportsMotor::FORWARD, SportsMotor::SPEED_MAX);
+      rightMotor.setDirectionAndSpeed(SportsMotor::FORWARD, SportsMotor::SPEED_MAX);
+      break;
+    case 'b':
+      leftMotor.setDirectionAndSpeed(SportsMotor::BACKWARD, SportsMotor::SPEED_MAX);
+      rightMotor.setDirectionAndSpeed(SportsMotor::BACKWARD, SportsMotor::SPEED_MAX);
+      break;
+    case ']':
+      leftMotor.setDirectionAndSpeed(SportsMotor::FORWARD, SportsMotor::SPEED_MAX);
+      rightMotor.setDirectionAndSpeed(SportsMotor::BACKWARD, SportsMotor::SPEED_MAX);
+      //state = STATE_SPINNING_CW;
+      break;
+    case '[':
+      leftMotor.setDirectionAndSpeed(SportsMotor::BACKWARD, SportsMotor::SPEED_MAX);
+      rightMotor.setDirectionAndSpeed(SportsMotor::FORWARD, SportsMotor::SPEED_MAX);
+      //state = STATE_SPINNING_CCW;
+      break;
+    case 'c':
+      leftMotor.setDirectionAndSpeed(SportsMotor::FORWARD, SportsMotor::SPEED_MAX * .5);
+      rightMotor.setDirectionAndSpeed(SportsMotor::FORWARD, SportsMotor::SPEED_MAX * .5);
+      state = STATE_APPROACHING_LINES;
+      break;
+    case 'd':
+      state = STATE_DEBUG;
+      break;
+  }
+}
